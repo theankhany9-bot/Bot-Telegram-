@@ -1,0 +1,632 @@
+import json
+import os
+import re
+import sys
+import time
+import requests
+import telebot
+from telebot import types
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "6214336913"))
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "Beda_modz")
+WELCOME_VIDEO_URL = os.environ.get("WELCOME_VIDEO_URL", "").strip()
+
+DATA_DIR = os.environ.get("DATA_DIR", "./beda_store_data")
+DATA_FILE = os.path.join(DATA_DIR, "store_data.json")
+QR_IMAGE_PATH = os.environ.get("QR_IMAGE_PATH", os.path.join(DATA_DIR, "pay_qr.jpg"))
+
+if not BOT_TOKEN:
+    print("ERROR: Missing BOT_TOKEN.")
+    sys.exit(1)
+
+os.makedirs(DATA_DIR, exist_ok=True)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
+
+user_states = {}
+admin_states = {}
+
+DEFAULT_DATA = {
+    "balance_topups": [
+        {"id": "bal_5", "name": "Top Up ប្រាក់ $5.00", "price": 5.00},
+        {"id": "bal_10", "name": "Top Up ប្រាក់ $10.00", "price": 10.00},
+        {"id": "bal_20", "name": "Top Up ប្រាក់ $20.00", "price": 20.00},
+    ],
+    "diamond_topups": [
+        {"id": "dm_ff_100", "game": "Free Fire", "name": "FF 100 Diamonds", "price": 1.15},
+        {"id": "dm_ff_310", "game": "Free Fire", "name": "FF 310 Diamonds", "price": 3.20},
+        {"id": "dm_ml_86", "game": "MLBB", "name": "MLBB 86 Diamonds", "price": 1.35},
+        {"id": "dm_ml_172", "game": "MLBB", "name": "MLBB 172 Diamonds", "price": 2.65},
+    ],
+    "ff_accounts": [
+        {"id": "ff_acc_01", "name": "FF Mobile Acc #01 (Evo Gun / Vault ស្អាត)", "price": 14.00},
+        {"id": "ff_acc_02", "name": "FF Mobile Acc #02 (Bundle / Booyah Pass)", "price": 22.00},
+        {"id": "ff_acc_03", "name": "FF Mobile Acc #03 (Account លេង Rank ស្អាត)", "price": 9.50},
+    ],
+    "orders": {},
+    "next_order_num": 2001,
+}
+
+
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        save_data(DEFAULT_DATA)
+        return json.loads(json.dumps(DEFAULT_DATA))
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = json.loads(json.dumps(DEFAULT_DATA))
+    for k, v in DEFAULT_DATA.items():
+        if k not in data:
+            data[k] = json.loads(json.dumps(v))
+    return data
+
+
+def save_data(data):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp_file = DATA_FILE + ".tmp"
+    with open(tmp_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_file, DATA_FILE)
+
+
+def is_admin(user_id):
+    return int(user_id) == int(ADMIN_ID)
+
+
+def send_styled_message(chat_id, text, rows, parse_mode="HTML"):
+    inline_keyboard = []
+    for row in rows:
+        api_row = []
+        for btn in row:
+            item = {"text": btn["text"]}
+            if btn.get("callback_data"):
+                item["callback_data"] = btn["callback_data"]
+            if btn.get("url"):
+                item["url"] = btn["url"]
+            if btn.get("style"):
+                item["style"] = btn["style"]
+            api_row.append(item)
+        inline_keyboard.append(api_row)
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "reply_markup": {"inline_keyboard": inline_keyboard},
+    }
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=20)
+        res = r.json()
+        if res.get("ok"):
+            return res
+    except Exception:
+        pass
+
+    kb = types.InlineKeyboardMarkup()
+    for row in rows:
+        btns = []
+        for btn in row:
+            if btn.get("url"):
+                btns.append(types.InlineKeyboardButton(btn["text"], url=btn["url"]))
+            else:
+                btns.append(types.InlineKeyboardButton(btn["text"], callback_data=btn.get("callback_data", "noop")))
+        kb.add(*btns)
+    return bot.send_message(chat_id, text, parse_mode=parse_mode, reply_markup=kb)
+
+
+def main_reply_kb(user_id):
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton("☰ Menu"),
+        types.KeyboardButton("🛒 Buy Now / ទិញឥឡូវនេះ"),
+    )
+    kb.add(
+        types.KeyboardButton("🎮 លក់អាខោន Mobile FF"),
+        types.KeyboardButton("💰 Top Up / បញ្ចូលប្រាក់"),
+    )
+    kb.add(
+        types.KeyboardButton("💎 Top up / ពេជ្រ ហ្គេម"),
+        types.KeyboardButton("📞 ទាក់ទង Admin"),
+    )
+    if is_admin(user_id):
+        kb.add(
+            types.KeyboardButton("🖼 កំណត់ QR បង់ប្រាក់"),
+            types.KeyboardButton("⚙️ Admin Panel"),
+        )
+    return kb
+
+
+def main_inline_rows(user_id):
+    rows = [
+        [{"text": "🛒 Buy Now / ទិញឥឡូវនេះ", "callback_data": "menu_buy_now", "style": "success"}],
+        [{"text": "🎮 លក់អាខោន Mobile Free Fire", "callback_data": "menu_ff_acc", "style": "primary"}],
+        [{"text": "💰 Top Up / បញ្ចូលប្រាក់", "callback_data": "menu_topup_money", "style": "success"}],
+        [{"text": "💎 Top up / ពេជ្រ ហ្គេម", "callback_data": "menu_topup_diamonds", "style": "primary"}],
+        [{"text": "☰ Menu", "callback_data": "open_menu", "style": "success"}],
+    ]
+    if is_admin(user_id):
+        rows.append([{"text": "🖼 កំណត់ QR បង់ប្រាក់", "callback_data": "admin_set_qr_btn", "style": "primary"}])
+    return rows
+
+
+def send_main_menu(chat_id, user_id, first_name="អ្នកប្រើប្រាស់"):
+    # បិទ ReplyKeyboard ខាងក្រោមឱ្យស្អាត ទុកតែប៊ូតុងពណ៌បៃតង/ខៀវក្នុង Chat
+    try:
+        rm = bot.send_message(chat_id, "⏳", reply_markup=types.ReplyKeyboardRemove())
+        bot.delete_message(chat_id, rm.message_id)
+    except Exception:
+        pass
+
+    if WELCOME_VIDEO_URL:
+        try:
+            bot.send_video(chat_id, WELCOME_VIDEO_URL)
+        except Exception:
+            pass
+
+    send_styled_message(
+        chat_id,
+        f"សួស្តី <b>{first_name}</b>!\n"
+        f"<b>BEDA STORE</b> — ស្វាគមន៍!\n"
+        f"សូមជ្រើសរើសមុខងារពី Menu ខាងក្រោម៖",
+        main_inline_rows(user_id),
+    )
+
+
+@bot.message_handler(commands=["start", "menu"])
+def cmd_start_menu(message):
+    user_states.pop(message.from_user.id, None)
+    admin_states.pop(message.from_user.id, None)
+    send_main_menu(message.chat.id, message.from_user.id, message.from_user.first_name or "អ្នកប្រើប្រាស់")
+
+
+@bot.message_handler(func=lambda m: m.text in ("☰ Menu", "📋 Menu", "Menu", "menu"))
+def msg_menu_btn(message):
+    cmd_start_menu(message)
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "open_menu")
+def cb_open_menu(call):
+    bot.answer_callback_query(call.id)
+    user_states.pop(call.from_user.id, None)
+    send_main_menu(call.message.chat.id, call.from_user.id, call.from_user.first_name or "អ្នកប្រើប្រាស់")
+
+
+@bot.message_handler(func=lambda m: m.text == "🛒 Buy Now / ទិញឥឡូវនេះ")
+@bot.callback_query_handler(func=lambda c: c.data == "menu_buy_now")
+def handle_buy_now(event):
+    if isinstance(event, telebot.types.CallbackQuery):
+        bot.answer_callback_query(event.id)
+        chat_id = event.message.chat.id
+    else:
+        chat_id = event.chat.id
+
+    send_styled_message(
+        chat_id,
+        "<b>🛒 Buy Now / ទិញឥឡូវនេះ</b>\nជ្រើសរើសប្រភេទដែលអ្នកចង់ទិញ៖",
+        [
+            [{"text": "🎮 លក់អាខោន Mobile Free Fire", "callback_data": "menu_ff_acc", "style": "success"}],
+            [{"text": "💎 Top up / ពេជ្រ ហ្គេម", "callback_data": "menu_topup_diamonds", "style": "primary"}],
+            [{"text": "💰 Top Up / បញ្ចូលប្រាក់", "callback_data": "menu_topup_money", "style": "success"}],
+            [{"text": "☰ Menu", "callback_data": "open_menu", "style": "primary"}],
+        ],
+    )
+
+
+@bot.message_handler(func=lambda m: m.text == "🎮 លក់អាខោន Mobile FF")
+@bot.callback_query_handler(func=lambda c: c.data == "menu_ff_acc")
+def handle_ff_accounts(event):
+    if isinstance(event, telebot.types.CallbackQuery):
+        bot.answer_callback_query(event.id)
+        chat_id = event.message.chat.id
+    else:
+        chat_id = event.chat.id
+
+    data = load_data()
+    rows = []
+    for idx, acc in enumerate(data["ff_accounts"]):
+        rows.append([
+            {
+                "text": f"🎮 {acc['name']} — ${acc['price']:.2f}",
+                "callback_data": f"buy_item|ff_acc|{acc['id']}",
+                "style": "success" if idx % 2 == 0 else "primary",
+            }
+        ])
+    rows.append([{"text": "☰ Menu", "callback_data": "open_menu", "style": "primary"}])
+    send_styled_message(chat_id, "<b>🎮 លក់អាខោន Mobile Free Fire</b>\nជ្រើសរើសអាខោនដែលអ្នកចង់ទិញ៖", rows)
+
+
+@bot.message_handler(func=lambda m: m.text == "💰 Top Up / បញ្ចូលប្រាក់")
+@bot.callback_query_handler(func=lambda c: c.data == "menu_topup_money")
+def handle_topup_money(event):
+    if isinstance(event, telebot.types.CallbackQuery):
+        bot.answer_callback_query(event.id)
+        chat_id = event.message.chat.id
+    else:
+        chat_id = event.chat.id
+
+    data = load_data()
+    rows = []
+    for idx, item in enumerate(data["balance_topups"]):
+        rows.append([
+            {
+                "text": f"💰 {item['name']} — ${item['price']:.2f}",
+                "callback_data": f"buy_item|money|{item['id']}",
+                "style": "success" if idx % 2 == 0 else "primary",
+            }
+        ])
+    rows.append([{"text": "☰ Menu", "callback_data": "open_menu", "style": "primary"}])
+    send_styled_message(chat_id, "<b>💰 Top Up / បញ្ចូលប្រាក់</b>\nជ្រើសរើសចំនួនទឹកប្រាក់ដែលអ្នកចង់បញ្ចូល៖", rows)
+
+
+@bot.message_handler(func=lambda m: m.text == "💎 Top up / ពេជ្រ ហ្គេម")
+@bot.callback_query_handler(func=lambda c: c.data == "menu_topup_diamonds")
+def handle_topup_diamonds(event):
+    if isinstance(event, telebot.types.CallbackQuery):
+        bot.answer_callback_query(event.id)
+        chat_id = event.message.chat.id
+    else:
+        chat_id = event.chat.id
+
+    send_styled_message(
+        chat_id,
+        "<b>💎 Top up / ពេជ្រ ហ្គេម</b>\nសូមជ្រើសរើសហ្គេមដែលអ្នកចង់បញ្ចូលពេជ្រ៖",
+        [
+            [{"text": "🔥 Free Fire", "callback_data": "dm_game|Free Fire", "style": "success"}],
+            [{"text": "⚔️ Mobile Legends (MLBB)", "callback_data": "dm_game|MLBB", "style": "primary"}],
+            [{"text": "☰ Menu", "callback_data": "open_menu", "style": "primary"}],
+        ],
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("dm_game|"))
+def cb_diamond_game_packages(call):
+    game_name = call.data.split("|", 1)[1]
+    bot.answer_callback_query(call.id)
+    data = load_data()
+    items = [x for x in data["diamond_topups"] if x.get("game", "").lower() == game_name.lower()]
+    if not items:
+        items = data["diamond_topups"]
+
+    rows = []
+    for idx, item in enumerate(items):
+        rows.append([
+            {
+                "text": f"💎 {item['name']} — ${item['price']:.2f}",
+                "callback_data": f"buy_item|diamond|{item['id']}",
+                "style": "success" if idx % 2 == 0 else "primary",
+            }
+        ])
+    rows.append([{"text": "⬅️ ត្រឡប់ជ្រើសរើសហ្គេម", "callback_data": "menu_topup_diamonds", "style": "primary"}])
+    send_styled_message(
+        call.message.chat.id,
+        f"<b>💎 Top up — {game_name}</b>\nជ្រើសរើសកញ្ចប់ Diamonds ដែលអ្នកចង់បាន៖",
+        rows,
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("buy_item|"))
+def cb_buy_item(call):
+    _, category, item_id = call.data.split("|", 2)
+    data = load_data()
+
+    pool_map = {
+        "ff_acc": ("លក់អាខោន Mobile Free Fire", data["ff_accounts"], "ផ្ញើ <b>Username / Contact</b> របស់អ្នក៖"),
+        "money": ("Top Up / បញ្ចូលប្រាក់", data["balance_topups"], "ផ្ញើ <b>User ID / Username</b> របស់អ្នក៖"),
+        "diamond": ("Top up / ពេជ្រ ហ្គេម", data["diamond_topups"], "ផ្ញើ <b>Free Fire Player UID</b> របស់អ្នក៖"),
+    }
+    cat_label, pool, prompt_text = pool_map.get(category, ("សេវាកម្ម", [], "ផ្ញើព័ត៌មានរបស់អ្នក៖"))
+    chosen = next((x for x in pool if x["id"] == item_id), None)
+    if not chosen:
+        bot.answer_callback_query(call.id, "រកមុខទំនិញមិនឃើញទេ។", show_alert=True)
+        return
+
+    if category == "diamond":
+        g = chosen.get("game", "")
+        if g == "MLBB":
+            prompt_text = "ផ្ញើ <b>User ID និង Server ID</b> (ឧ. <code>123456789 (2024)</code>)៖"
+        elif g == "Free Fire":
+            prompt_text = "ផ្ញើ <b>Free Fire Player UID</b> របស់អ្នក៖"
+
+    if category == "diamond":
+        g = chosen.get("game", "")
+        if g == "MLBB":
+            prompt_text = "ផ្ញើ <b>User ID និង Server ID</b> (ឧ. <code>123456789 (2024)</code>)៖"
+        elif g == "Free Fire":
+            prompt_text = "ផ្ញើ <b>Free Fire Player UID</b> របស់អ្នក៖"
+
+    user_states[call.from_user.id] = {
+        "step": "awaiting_details",
+        "category": cat_label,
+        "item_name": chosen["name"],
+        "price": float(chosen["price"]),
+    }
+    bot.answer_callback_query(call.id)
+    bot.send_message(
+        call.message.chat.id,
+        f"អ្នកបានជ្រើសរើស៖ <b>{chosen['name']}</b> (${float(chosen['price']):.2f})\n"
+        f"សូម{prompt_text}",
+    )
+
+
+@bot.message_handler(func=lambda m: user_states.get(m.from_user.id, {}).get("step") == "awaiting_details")
+def handle_order_details(message):
+    uid = message.from_user.id
+    details = (message.text or "").strip()
+    if not details:
+        bot.send_message(message.chat.id, "❌ សូមវាយព័ត៌មានឱ្យបានត្រឹមត្រូវ។")
+        return
+
+    st = user_states[uid]
+    st["step"] = "awaiting_receipt"
+    st["details"] = details
+    if "Top up" in st.get("category", "") or "ពេជ្រ" in st.get("category", ""):
+        _send_qr_for_order(message.chat.id, st)
+        return
+
+    caption = (
+        f"💳 <b>QR បង់ប្រាក់ — BEDA STORE</b>\n"
+        f"• សេវាកម្ម៖ <b>{st['category']}</b>\n"
+        f"• មុខទំនិញ៖ <b>{st['item_name']}</b>\n"
+        f"• តម្លៃត្រូវបង់៖ <b>${st['price']:.2f}</b>\n"
+        f"• ព័ត៌មាន៖ <code>{details}</code>\n\n"
+        f"១. ស្កេន QR បង់ប្រាក់ឱ្យគ្រប់ចំនួន\n"
+        f"២. បាញ់រួច សូម<b>ផ្ញើរូបភាពវិក្កយប័ត្រ (Receipt)</b> មកកាន់ Bot នេះ!"
+    )
+    if os.path.exists(QR_IMAGE_PATH):
+        with open(QR_IMAGE_PATH, "rb") as f_qr:
+            bot.send_photo(message.chat.id, f_qr, caption=caption)
+    else:
+        bot.send_message(
+            message.chat.id,
+            caption + "\n\n<i>(Admin មិនទាន់បានដាក់រូប QR ទេ — សូមផ្ញើរូបវិក្កយប័ត្រមកផ្ទាល់)</i>",
+        )
+
+
+@bot.message_handler(
+    content_types=["photo"],
+    func=lambda m: user_states.get(m.from_user.id, {}).get("step") == "awaiting_receipt",
+)
+def handle_order_receipt(message):
+    uid = message.from_user.id
+    st = user_states.pop(uid, None)
+    if not st:
+        return
+
+    receipt_file_id = message.photo[-1].file_id
+    data = load_data()
+    order_id = f"ORD{data['next_order_num']}"
+    data["next_order_num"] += 1
+
+    data["orders"][order_id] = {
+        "order_id": order_id,
+        "user_id": uid,
+        "username": message.from_user.username or "",
+        "category": st["category"],
+        "item_name": st["item_name"],
+        "price": float(st["price"]),
+        "details": st["details"],
+        "receipt_file_id": receipt_file_id,
+        "status": "pending",
+        "created_at": int(time.time()),
+    }
+    save_data(data)
+
+    bot.send_message(
+        message.chat.id,
+        f"✅ បានទទួលវិក្កយប័ត្រសម្រាប់ Order <b>{order_id}</b>!\n"
+        f"កំពុងរង់ចាំ Admin ពិនិត្យ និងអនុម័ត...",
+        reply_markup=main_reply_kb(uid),
+    )
+
+    kb = types.InlineKeyboardMarkup()
+    kb.add(
+        types.InlineKeyboardButton("✅ អនុម័ត", callback_data=f"ord_app|{order_id}"),
+        types.InlineKeyboardButton("❌ បដិសេធ", callback_data=f"ord_rej|{order_id}"),
+    )
+    bot.send_photo(
+        ADMIN_ID,
+        receipt_file_id,
+        caption=(
+            f"🆕 <b>Order ថ្មី: {order_id}</b>\n"
+            f"• អ្នកទិញ៖ <code>{uid}</code> (@{message.from_user.username or 'none'})\n"
+            f"• សេវាកម្ម៖ <b>{st['category']}</b>\n"
+            f"• មុខទំនិញ៖ <b>{st['item_name']}</b> (${st['price']:.2f})\n"
+            f"• ព័ត៌មាន៖ <code>{st['details']}</code>"
+        ),
+        reply_markup=kb,
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith(("ord_app|", "ord_rej|")))
+def cb_admin_order_decision(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "សម្រាប់ Admin ប៉ុណ្ណោះ។", show_alert=True)
+        return
+
+    action, order_id = call.data.split("|", 1)
+    data = load_data()
+    order = data["orders"].get(order_id)
+    if not order or order.get("status") != "pending":
+        bot.answer_callback_query(call.id, "Order មិនមានឬបានដោះស្រាយរួចហើយ។", show_alert=True)
+        return
+
+    buyer_id = int(order["user_id"])
+    if action == "ord_app":
+        order["status"] = "approved"
+        save_data(data)
+        bot.answer_callback_query(call.id, "បានអនុម័ត!")
+        try:
+            bot.edit_message_caption(f"{call.message.caption or ''}\n\n✅ <b>បានអនុម័ត (APPROVED)</b>", call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+        try:
+            bot.send_message(buyer_id, f"✅ <b>Order {order_id} ត្រូវបានអនុម័ត!</b>\nមុខទំនិញ៖ <b>{order['item_name']}</b>")
+        except Exception:
+            pass
+    else:
+        order["status"] = "rejected"
+        save_data(data)
+        bot.answer_callback_query(call.id, "បានបដិសេធ!")
+        try:
+            bot.edit_message_caption(f"{call.message.caption or ''}\n\n❌ <b>បានបដិសេធ (REJECTED)</b>", call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+        try:
+            bot.send_message(buyer_id, f"❌ <b>Order {order_id} ត្រូវបានបដិសេធ</b>\nសូមទាក់ទង Admin @{ADMIN_USERNAME}។")
+        except Exception:
+            pass
+
+
+@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "🖼 កំណត់ QR បង់ប្រាក់")
+@bot.callback_query_handler(func=lambda c: c.data == "admin_set_qr_btn")
+def handle_set_qr_start(event):
+    if isinstance(event, telebot.types.CallbackQuery):
+        if not is_admin(event.from_user.id):
+            bot.answer_callback_query(event.id, "សម្រាប់ Admin ប៉ុណ្ណោះ។", show_alert=True)
+            return
+        bot.answer_callback_query(event.id)
+        uid = event.from_user.id
+        chat_id = event.message.chat.id
+    else:
+        uid = event.from_user.id
+        chat_id = event.chat.id
+
+    admin_states[uid] = {"step": "set_qr_photo"}
+    bot.send_message(chat_id, "សូមផ្ញើ <b>រូបភាព QR Code បង់ប្រាក់</b> មកកាន់ Bot នេះ៖")
+
+
+@bot.message_handler(
+    content_types=["photo"],
+    func=lambda m: is_admin(m.from_user.id) and admin_states.get(m.from_user.id, {}).get("step") == "set_qr_photo",
+)
+def handle_set_qr_save(message):
+    admin_states.pop(message.from_user.id, None)
+    file_id = message.photo[-1].file_id
+    file_info = bot.get_file(file_id)
+    downloaded = bot.download_file(file_info.file_path)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(QR_IMAGE_PATH, "wb") as f_out:
+        f_out.write(downloaded)
+    bot.send_message(message.chat.id, "✅ បានរក្សាទុករូបភាព QR បង់ប្រាក់រួចរាល់!", reply_markup=main_reply_kb(message.from_user.id))
+
+
+@bot.message_handler(func=lambda m: m.text == "📞 ទាក់ទង Admin")
+def handle_contact_admin(message):
+    bot.send_message(message.chat.id, f"📞 ទាក់ទង Admin៖ @{ADMIN_USERNAME}")
+
+
+@bot.message_handler(commands=["admin"])
+@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "⚙️ Admin Panel")
+def handle_admin_panel(message):
+    data = load_data()
+    pending_count = sum(1 for o in data["orders"].values() if o.get("status") == "pending")
+    send_styled_message(
+        message.chat.id,
+        f"<b>⚙️ Admin Panel — BEDA STORE</b>\n• Order រង់ចាំ៖ <b>{pending_count}</b>",
+        [
+            [{"text": "🖼 កំណត់ QR បង់ប្រាក់", "callback_data": "admin_set_qr_btn", "style": "success"}],
+            [{"text": "☰ Menu", "callback_data": "open_menu", "style": "primary"}],
+        ],
+    )
+
+
+def extract_retry_after(err_str):
+    m = re.search(r"retry after (\d+)", err_str, re.IGNORECASE)
+    return int(m.group(1)) if m else 15
+
+
+
+def setup_chat_menu_button():
+    commands = [
+        {"command": "start", "description": "☰ ចាប់ផ្តើម / Menu មេ"},
+        {"command": "menu", "description": "📋 បង្ហាញបញ្ជីម៉ឺនុយ"},
+        {"command": "buy", "description": "🛒 Buy Now / ទិញឥឡូវនេះ"},
+        {"command": "ffacc", "description": "🎮 លក់អាខោន Mobile Free Fire"},
+        {"command": "topup", "description": "💰 Top Up / បញ្ចូលប្រាក់"},
+        {"command": "diamonds", "description": "💎 Top up / ពេជ្រ ហ្គេម"},
+    ]
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setMyCommands",
+            json={"commands": commands},
+            timeout=15,
+        )
+        r = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMenuButton",
+            json={"menu_button": {"type": "commands"}},
+            timeout=15,
+        )
+        print("setChatMenuButton result:", r.text)
+    except Exception as e:
+        print("Failed to set chat menu button:", e)
+
+
+@bot.message_handler(commands=["buy"])
+def cmd_alias_buy(message):
+    handle_buy_now(message)
+
+
+@bot.message_handler(commands=["ffacc"])
+def cmd_alias_ffacc(message):
+    handle_ff_accounts(message)
+
+
+@bot.message_handler(commands=["topup"])
+def cmd_alias_topup(message):
+    handle_topup_money(message)
+
+
+@bot.message_handler(commands=["diamonds"])
+def cmd_alias_diamonds(message):
+    handle_topup_diamonds(message)
+
+
+# ================= GAME TOPUP QR + RECEIPT TO ADMIN_ID =================
+@bot.message_handler(commands=["setqr"])
+def cmd_set_qr(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "❌ មុខងារនេះសម្រាប់ Admin ប៉ុណ្ណោះ។")
+        return
+    admin_states[message.from_user.id] = {"step": "set_qr_photo"}
+    bot.send_message(
+        message.chat.id,
+        f"🖼 <b>កំណត់ QR បង់ប្រាក់ (Admin ID: <code>{ADMIN_ID}</code>)</b>\n"
+        f"សូមផ្ញើ <b>រូបភាព QR Code</b> មកកាន់ Bot ឥឡូវនេះ៖",
+    )
+
+
+def _send_qr_for_order(chat_id, st):
+    caption = (
+        f"💳 <b>QR បង់ប្រាក់ — ហ្គេម Top up</b>\n"
+        f"• សេវាកម្ម៖ <b>{st['category']}</b>\n"
+        f"• កញ្ចប់៖ <b>{st['item_name']}</b>\n"
+        f"• តម្លៃ៖ <b>${st['price']:.2f}</b>\n"
+        f"• Game ID / UID៖ <code>{st['details']}</code>\n\n"
+        f"១. ស្កេន QR បង់ប្រាក់ឱ្យគ្រប់ចំនួន\n"
+        f"២. បាញ់រួច សូម<b>ថតបត / ផ្ញើរូបភាពវិក្កយប័ត្រ</b> មកក្នុង Chat នេះ!"
+    )
+    if os.path.exists(QR_IMAGE_PATH):
+        with open(QR_IMAGE_PATH, "rb") as f_qr:
+            bot.send_photo(chat_id, f_qr, caption=caption)
+    else:
+        bot.send_message(
+            chat_id,
+            caption + f"\n\n<i>(មិនទាន់មានរូប QR ក្នុងម៉ាស៊ីនទេ — Admin <code>{ADMIN_ID}</code> អាចកំណត់បានតាម 🖼 កំណត់ QR បង់ប្រាក់)</i>",
+        )
+
+if __name__ == "__main__":
+    print("BEDA STORE Bot is running...")
+    while True:
+        try:
+            bot.infinity_polling(timeout=20, long_polling_timeout=20, skip_pending=True)
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "Too Many Requests" in err_str:
+                wait_sec = extract_retry_after(err_str) + 3
+                print(f"Rate limited (429). Waiting {wait_sec}s...")
+                time.sleep(wait_sec)
+            else:
+                print("Polling error:", err_str)
+                time.sleep(5)

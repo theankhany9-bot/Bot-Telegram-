@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.py[cod]
+data/data.json
+data/data.json.tmp
+data/files/

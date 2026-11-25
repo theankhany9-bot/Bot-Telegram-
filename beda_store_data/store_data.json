@@ -1,0 +1,112 @@
+{
+  "balance_topups": [
+    {
+      "id": "bal_5",
+      "name": "Top Up ប្រាក់ $5.00",
+      "price": 5.0
+    },
+    {
+      "id": "bal_10",
+      "name": "Top Up ប្រាក់ $10.00",
+      "price": 10.0
+    },
+    {
+      "id": "bal_20",
+      "name": "Top Up ប្រាក់ $20.00",
+      "price": 20.0
+    }
+  ],
+  "diamond_topups": [],
+  "ff_accounts": [],
+  "orders": {
+    "ORD2001": {
+      "order_id": "ORD2001",
+      "user_id": 6214336913,
+      "username": "Cryptosinnals_99k",
+      "category": "Top Up / បញ្ចូលប្រាក់",
+      "item_name": "Top Up ប្រាក់ $20.00",
+      "price": 20.0,
+      "details": "📞 ទាក់ទង Admin",
+      "receipt_file_id": "AgACAgUAAxkBAAMgawY0o8sYEra9OsTcoEg3Q9vPMIQAAooTaxtekyBU5aSPQOvdjzUBAAMCAAN5AAM9BA",
+      "status": "approved",
+      "created_at": 1795568802
+    },
+    "ORD2002": {
+      "order_id": "ORD2002",
+      "user_id": 6214336913,
+      "username": "Cryptosinnals_99k",
+      "category": "Top up / ពេជ្រ ហ្គេម",
+      "item_name": "FF 310 Diamonds",
+      "price": 3.2,
+      "details": "1584073707(11886)",
+      "receipt_file_id": "AgACAgUAAxkBAAMyawY05eyvhgUqrbnLCgd2oYUKz5gAAuARaxtezDBUe8cRI0ySI88BAAMCAAN5AAM9BA",
+      "status": "approved",
+      "created_at": 1795568869
+    },
+    "ORD2003": {
+      "order_id": "ORD2003",
+      "user_id": 6214336913,
+      "username": "Cryptosinnals_99k",
+      "category": "Top Up / បញ្ចូលប្រាក់",
+      "item_name": "Top Up ប្រាក់ $20.00",
+      "price": 20.0,
+      "details": "1223467",
+      "receipt_file_id": "AgACAgUAAxkBAANaawY2flew6gJRhDse50J6epzwpt4AAuIRaxtezDBUeHgCAxNsMrwBAAMCAAN5AAM9BA",
+      "status": "approved",
+      "created_at": 1795569278
+    },
+    "ORD2004": {
+      "order_id": "ORD2004",
+      "user_id": 6214336913,
+      "username": "Cryptosinnals_99k",
+      "category": "Top up / ពេជ្រ ហ្គេម",
+      "item_name": "FF 100 Diamonds",
+      "price": 1.15,
+      "details": "12345678",
+      "receipt_file_id": "AgACAgUAAxkBAAOBawY38V64CeFVfcEQnAMlf28_PpMAAuQRaxtezDBUWST13CsPVX8BAAMCAAN5AAM9BA",
+      "status": "approved",
+      "created_at": 1795569649
+    },
+    "ORD2005": {
+      "order_id": "ORD2005",
+      "user_id": 6214336913,
+      "username": "Cryptosinnals_99k",
+      "category": "Top up / ពេជ្រ ហ្គេម",
+      "item_name": "FF 310 Diamonds",
+      "price": 3.2,
+      "details": "12346788",
+      "receipt_file_id": "AgACAgUAAxkBAAOVawY4-7poVkIs32csgfcp5pwngQAD5xFrG17MMFS9wivyG5Fy8wEAAwIAA3kAAz0E",
+      "status": "approved",
+      "created_at": 1795569915
+    }
+  },
+  "next_order_num": 2006,
+  "admins": [
+    6214336913
+  ],
+  "button_labels": {
+    "buy_now": "Buy NOW / បញ្ជាទិញ",
+    "ff_acc": "🎮 លក់អាខោន Mobile Free Fire",
+    "diamonds": "TOP UP / ពេជ្រ ហ្គេម",
+    "set_qr": "🖼 កំណត់ QR បង់ប្រាក់"
+  },
+  "premium_emojis": {
+    "buy_now": "5312361253610475399",
+    "ff_acc": "",
+    "diamonds": "5814681137989030053",
+    "menu": ""
+  },
+  "topup_money_pkgs": [
+    {
+      "id": "tm_5",
+      "name": "Top up ប្រាក់ $5.00",
+      "price": 5.0
+    },
+    {
+      "id": "tm_10",
+      "name": "Top up ប្រាក់ $10.00",
+      "price": 10.0
+    }
+  ],
+  "next_item_num": 103
+}
